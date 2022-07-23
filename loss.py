@@ -1,18 +1,20 @@
 import torch
 from torch import nn
-from torchvision.models.vgg import vgg16
-
+from torchvision.models.resnet import resnet50
 
 class GeneratorLoss(nn.Module):
     def __init__(self):
         super(GeneratorLoss, self).__init__()
-        vgg = vgg16(pretrained=True)
-        loss_network = nn.Sequential(*list(vgg.features)[:31]).eval()
+        resnet = resnet50(pretrained=True)
+        loss_network = torch.nn.Sequential(*(list(resnet.children())[:-2])).eval()
         for param in loss_network.parameters():
             param.requires_grad = False
         self.loss_network = loss_network
         self.mse_loss = nn.MSELoss()
-        self.tv_loss = TVLoss()
+        self.counter = 0
+        self.il = 0
+        self.pl = 0
+        self.al = 0
 
     def forward(self, out_labels, out_images, target_images):
         # Adversarial Loss
@@ -21,9 +23,21 @@ class GeneratorLoss(nn.Module):
         perception_loss = self.mse_loss(self.loss_network(out_images), self.loss_network(target_images))
         # Image Loss
         image_loss = self.mse_loss(out_images, target_images)
-        # TV Loss
-        tv_loss = self.tv_loss(out_images)
-        return image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-8 * tv_loss
+        
+        #Each epoch print out a running average of the individual losses too(!!!Need to update the value for the counter to match the number of batches per epoch)
+        self.il += image_loss
+        self.pl += perception_loss
+        self.al += adversarial_loss
+        if self.counter < 175:
+            self.counter += 1
+        else:
+            print('Image: %.5f  Perception: %.5f  Advers: %.5f' % (self.il / 175, self.pl / 175, self.al / 175))
+            self.counter = 1
+            self.il = 0
+            self.pl = 0
+            self.al = 0
+            
+        return image_loss + 0.05 * perception_loss + 0.001 * adversarial_loss
 
 
 class TVLoss(nn.Module):
