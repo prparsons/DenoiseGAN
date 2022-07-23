@@ -3,28 +3,45 @@ from os.path import join
 
 from PIL import Image
 from torch.utils.data.dataset import Dataset
-from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize
+from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize, Lambda
+
+import numpy as np
+import cv2
 
 
 def is_image_file(filename):
     return any(filename.endswith(extension) for extension in ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG'])
 
 
-def calculate_valid_crop_size(crop_size, upscale_factor):
-    return crop_size - (crop_size % upscale_factor)
-
-
 def train_hr_transform(crop_size):
     return Compose([
+        Resize(crop_size * 2),
         RandomCrop(crop_size),
         ToTensor(),
     ])
 
+def val_hr_transform(crop_size):
+    return Compose([
+        Resize(crop_size),
+        CenterCrop(crop_size),
+        ToTensor(),
+    ])
 
-def train_lr_transform(crop_size, upscale_factor):
+def noise(imagePill):
+    image = np.array(imagePill.convert('YCbCr'))
+    gaussian_noise = np.zeros((image.shape[0], image.shape[1]),dtype=np.uint8)
+    cv2.randn(gaussian_noise, 128, 20)
+    gaussian_noise = (gaussian_noise*0.5).astype(np.float32) - 64
+    noisy_image = cv2.add(image[:,:,0].astype(np.float32),gaussian_noise)
+    noisy_image = np.clip(noisy_image, 0, 255).astype(np.uint8)
+    image[:,:,0] = noisy_image
+    imagePill = Image.fromarray(image, mode='YCbCr')
+    return imagePill.convert('RGB')
+
+def train_lr_transform(crop_size):
     return Compose([
         ToPILImage(),
-        Resize(crop_size // upscale_factor, interpolation=Image.BICUBIC),
+        Lambda(noise),
         ToTensor()
     ])
 
@@ -32,19 +49,18 @@ def train_lr_transform(crop_size, upscale_factor):
 def display_transform():
     return Compose([
         ToPILImage(),
-        Resize(400),
+        #Resize(400),
         CenterCrop(400),
         ToTensor()
     ])
 
 
 class TrainDatasetFromFolder(Dataset):
-    def __init__(self, dataset_dir, crop_size, upscale_factor):
+    def __init__(self, dataset_dir, crop_size):
         super(TrainDatasetFromFolder, self).__init__()
         self.image_filenames = [join(dataset_dir, x) for x in listdir(dataset_dir) if is_image_file(x)]
-        crop_size = calculate_valid_crop_size(crop_size, upscale_factor)
         self.hr_transform = train_hr_transform(crop_size)
-        self.lr_transform = train_lr_transform(crop_size, upscale_factor)
+        self.lr_transform = train_lr_transform(crop_size)
 
     def __getitem__(self, index):
         hr_image = self.hr_transform(Image.open(self.image_filenames[index]))
@@ -55,22 +71,18 @@ class TrainDatasetFromFolder(Dataset):
         return len(self.image_filenames)
 
 
+
 class ValDatasetFromFolder(Dataset):
-    def __init__(self, dataset_dir, upscale_factor):
+    def __init__(self, dataset_dir, crop_size):
         super(ValDatasetFromFolder, self).__init__()
-        self.upscale_factor = upscale_factor
         self.image_filenames = [join(dataset_dir, x) for x in listdir(dataset_dir) if is_image_file(x)]
+        self.hr_transform = val_hr_transform(crop_size)
+        self.lr_transform = train_lr_transform(crop_size)
 
     def __getitem__(self, index):
-        hr_image = Image.open(self.image_filenames[index])
-        w, h = hr_image.size
-        crop_size = calculate_valid_crop_size(min(w, h), self.upscale_factor)
-        lr_scale = Resize(crop_size // self.upscale_factor, interpolation=Image.BICUBIC)
-        hr_scale = Resize(crop_size, interpolation=Image.BICUBIC)
-        hr_image = CenterCrop(crop_size)(hr_image)
-        lr_image = lr_scale(hr_image)
-        hr_restore_img = hr_scale(lr_image)
-        return ToTensor()(lr_image), ToTensor()(hr_restore_img), ToTensor()(hr_image)
+        hr_image = self.hr_transform(Image.open(self.image_filenames[index]))
+        lr_image = self.lr_transform(hr_image)
+        return lr_image, hr_image
 
     def __len__(self):
         return len(self.image_filenames)
