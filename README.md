@@ -68,3 +68,22 @@ optional arguments:
 ```
 The output super resolution video and compared video are on the same directory.
 
+
+## Results
+
+PSNR: 32.0438 dB SSIM: 0.9466
+
+Left: original  Middle: noise added  Right: De-noised
+
+![Results image](https://github.com/prparsons/DenoiseGAN/blob/master/epoch_100_index_2.png)
+
+
+Used the DIV2K training set for training (pulled a portion of those for validation).
+http://www.vision.ee.ethz.ch/~timofter/publications/Agustsson-CVPRW-2017.pdf
+@InProceedings{Ignatov_2018_ECCV_Workshops,
+author = {Ignatov, Andrey and Timofte, Radu and others},
+title = {PIRM challenge on perceptual image enhancement on smartphones: report},
+booktitle = {European Conference on Computer Vision (ECCV) Workshops},
+month = {January},
+year = {2019}
+}
