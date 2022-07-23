@@ -20,6 +20,13 @@ parser.add_argument('--crop_size', default=88, type=int, help='training images c
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8],
                     help='super resolution upscale factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number')
+parser.add_argument('--trainDir', type=str, help='Training image directory')
+parser.add_argument('--valDir', type=str, help='Validation image directory')
+parser.add_argument('--batchSize', default=64, type=int, help='Batch size for train set')
+parser.add_argument('--lrGen', type=float, default=0.001, help='Learning rate for generator')
+parser.add_argument('--lrDis', type=float, default=0.001, help='Learning rate for discriminator')
+parser.add_argument('--b1', type=float, default=0.9)
+parser.add_argument('--b2', type=float, default=0.999)
 
 
 if __name__ == '__main__':
@@ -28,11 +35,11 @@ if __name__ == '__main__':
     CROP_SIZE = opt.crop_size
     UPSCALE_FACTOR = opt.upscale_factor
     NUM_EPOCHS = opt.num_epochs
-    
-    train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
-    val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR)
-    train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=64, shuffle=True)
-    val_loader = DataLoader(dataset=val_set, num_workers=4, batch_size=1, shuffle=False)
+        
+    train_set = TrainDatasetFromFolder(opt.trainDir, crop_size=CROP_SIZE)
+    val_set = ValDatasetFromFolder(opt.valDir, crop_size=CROP_SIZE)
+    train_loader = DataLoader(dataset=train_set, num_workers=0, batch_size=opt.batchSize, shuffle=True)
+    val_loader = DataLoader(dataset=val_set, num_workers=0, batch_size=1, shuffle=False)
     
     netG = Generator(UPSCALE_FACTOR)
     print('# generator parameters:', sum(param.numel() for param in netG.parameters()))
@@ -46,8 +53,11 @@ if __name__ == '__main__':
         netD.cuda()
         generator_criterion.cuda()
     
-    optimizerG = optim.Adam(netG.parameters())
-    optimizerD = optim.Adam(netD.parameters())
+    optimizerG = optim.Adam(netG.parameters(), lr=opt.lrGen)
+    optimizerD = optim.Adam(netD.parameters(), lr=opt.lrDis)
+    
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     
     results = {'d_loss': [], 'g_loss': [], 'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}
     
@@ -118,7 +128,7 @@ if __name__ == '__main__':
             val_bar = tqdm(val_loader)
             valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
             val_images = []
-            for val_lr, val_hr_restore, val_hr in val_bar:
+            for val_lr, val_hr in val_bar:
                 batch_size = val_lr.size(0)
                 valing_results['batch_sizes'] += batch_size
                 lr = val_lr
@@ -139,8 +149,9 @@ if __name__ == '__main__':
                         valing_results['psnr'], valing_results['ssim']))
         
                 val_images.extend(
-                    [display_transform()(val_hr_restore.squeeze(0)), display_transform()(hr.data.cpu().squeeze(0)),
-                     display_transform()(sr.data.cpu().squeeze(0))])
+                    [hr.data.cpu().squeeze(0),
+                     lr.data.cpu().squeeze(0),
+                     sr.data.cpu().squeeze(0)])
             val_images = torch.stack(val_images)
             val_images = torch.chunk(val_images, val_images.size(0) // 15)
             val_save_bar = tqdm(val_images, desc='[saving training results]')
@@ -161,10 +172,3 @@ if __name__ == '__main__':
         results['psnr'].append(valing_results['psnr'])
         results['ssim'].append(valing_results['ssim'])
     
-        if epoch % 10 == 0 and epoch != 0:
-            out_path = 'statistics/'
-            data_frame = pd.DataFrame(
-                data={'Loss_D': results['d_loss'], 'Loss_G': results['g_loss'], 'Score_D': results['d_score'],
-                      'Score_G': results['g_score'], 'PSNR': results['psnr'], 'SSIM': results['ssim']},
-                index=range(1, epoch + 1))
-            data_frame.to_csv(out_path + 'srf_' + str(UPSCALE_FACTOR) + '_train_results.csv', index_label='Epoch')
