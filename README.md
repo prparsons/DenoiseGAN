@@ -73,7 +73,10 @@ The output super resolution video and compared video are on the same directory.
 
 PSNR: 32.0438 dB SSIM: 0.9466
 
-Left: original  Middle: noise added  Right: De-noised
+Image zoomed 200% to show detail<br>
+Left: original<br>
+Middle: noise added<br>
+Right: De-noised
 
 ![Results image](https://github.com/prparsons/DenoiseGAN/blob/master/epoch_100_index_2.png)
 
